@@ -2,10 +2,10 @@
 import json
 import numpy as np
 from os.path import join
-import diffuser.utils as utils
-from diffuser.guides.policies import Policy
-from torch.utils.tensorboard import SummaryWriter
 import pdb
+from diffuser.guides.policies import Policy
+import diffuser.utils as utils
+from torch.utils.tensorboard import SummaryWriter
 
 
 #-----------------------------------------------------------------------------#
@@ -14,7 +14,7 @@ import pdb
 
 class Parser(utils.Parser):
     dataset: str = 'maze2d-large-v1'
-    config: str = 'config.maze2d'
+    config: str = 'config.maze2d_jumpy'
 
 args = Parser().parse_args('diffusion')
 
