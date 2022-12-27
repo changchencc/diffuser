@@ -1,4 +1,10 @@
+
+import json
+import numpy as np
+from os.path import join
 import diffuser.utils as utils
+from diffuser.guides.policies import Policy
+from torch.utils.tensorboard import SummaryWriter
 import pdb
 
 
@@ -38,7 +44,7 @@ dataset = dataset_config()
 renderer = render_config()
 
 observation_dim = dataset.observation_dim
-action_dim = dataset.action_dim
+action_dim = dataset.action_dim * args.jump
 
 
 #-----------------------------------------------------------------------------#
@@ -117,9 +123,129 @@ print('✓')
 #--------------------------------- main loop ---------------------------------#
 #-----------------------------------------------------------------------------#
 
+eval_args = Parser().parse_args('plan')
+eval_writer = SummaryWriter(log_dir=args.savepath)
+def evaluate(epoch, sample_idx):
+
+
+    env_eval = dataset.load_environment(eval_args.dataset)
+    policy = Policy(trainer.ema_model, dataset.normalizer)
+
+    observation = env_eval.reset()
+    target = env_eval._target
+    cond = {
+        diffusion.horizon - 1: np.array([*target, 0, 0]),
+    }
+    observation = env_eval.reset()
+    init_state = env_eval.state_vector()
+
+    for infer_action in [True, False]:
+
+        ## observations for rendering
+        env_eval.set_state(init_state[:2], init_state[2:])
+        observation = env_eval._get_obs()
+        rollout = [observation.copy()]
+
+        total_reward = 0
+        for t in range(env_eval.max_episode_steps // args.jump):
+
+            state = env_eval.state_vector().copy()
+
+            ## can replan if desired, but the open-loop plans are good enough for maze2d
+            ## that we really only need to plan once
+            if t == 0:
+                cond[0] = observation
+
+                action, samples = policy(cond, batch_size=eval_args.batch_size)
+                actions = samples.actions[0]
+                actions = actions.reshape(diffusion.horizon, args.jump, -1)
+                sequence = samples.observations[0]
+            # pdb.set_trace()
+
+            # ####
+            if t < len(sequence) - 1:
+                next_waypoint = sequence[t+1]
+            else:
+                next_waypoint = sequence[-1].copy()
+                next_waypoint[2:] = 0
+                # pdb.set_trace()
+
+            ## can use actions or define a simple controller based on state predictions
+            action = next_waypoint[:2] - state[:2] + (next_waypoint[2:] - state[2:])
+            for j in range(args.jump):
+
+                if infer_action:
+                    action = next_waypoint[:2] - state[:2] + (next_waypoint[2:] - state[2:])
+                else:
+                    if t < len(sequence) - 1:
+                        action = actions[t, j]
+                    else:
+                        next_waypoint = sequence[-1].copy()
+                        next_waypoint[2:] = 0
+                        action = next_waypoint[:2] - state[:2] + (next_waypoint[2:] - state[2:])
+
+                next_observation, reward, terminal, _ = env_eval.step(action)
+                total_reward += reward
+                score = env_eval.get_normalized_score(total_reward)
+                print(
+                    f't: {t} | r: {reward:.2f} |  R: {total_reward:.2f} | score: {score:.4f} | '
+                    f'{action}'
+                )
+
+                if 'maze2d' in eval_args.dataset:
+                    xy = next_observation[:2]
+                    goal = env_eval.unwrapped._target
+                    print(
+                        f'maze | pos: {xy} | goal: {goal}'
+                    )
+
+                ## update rollout observations
+                rollout.append(next_observation.copy())
+
+            # logger.log(score=score, step=t)
+
+            if t % eval_args.vis_freq == 0 or terminal:
+                fullpath = join(eval_args.savepath, f'J{args.jump}-inferAct{infer_action}-e{epoch}-s{sample_idx}-{t}.png')
+
+
+                if t == 0: renderer.composite(fullpath, samples.observations, ncol=1)
+
+
+                # renderer.render_plan(join(args.savepath, f'{t}_plan.mp4'), samples.actions, samples.observations, state)
+
+                ## save rollout thus far
+                renderer.composite(join(eval_args.savepath, f'rollout_J{args.jump}-inferAct{infer_action}_e{epoch}-s{sample_idx}.png'), np.array(rollout)[None], ncol=1)
+
+                # renderer.render_rollout(join(args.savepath, f'rollout.mp4'), rollout, fps=80)
+
+                # logger.video(rollout=join(args.savepath, f'rollout.mp4'), plan=join(args.savepath, f'{t}_plan.mp4'), step=t)
+
+            if terminal:
+                break
+
+            observation = next_observation
+
+        # logger.finish(t, env.max_episode_steps, score=score, value=0)
+
+        eval_writer.add_scalars(f'rollout_J{args.jump}-inferAct{infer_action}', 
+                                {'score': score, 'return': total_reward}, global_step=epoch*args.n_steps_per_epoch+sample_idx)
+        ## save result as a json file
+        json_path = join(args.savepath, 'rollout.json')
+        json_data = {'score': score, 'step': t, 'return': total_reward, 'term': terminal,
+            'epoch_diffusion': epoch}
+        json.dump(json_data, open(json_path, 'w'), indent=2, sort_keys=True)
+
+
+
 n_epochs = int(args.n_train_steps // args.n_steps_per_epoch)
+eval_sample_n = 5
 
 for i in range(n_epochs):
+
     print(f'Epoch {i} / {n_epochs} | {args.savepath}')
+
+    for k in range(eval_sample_n):
+        evaluate(i, 0)
+
     trainer.train(n_train_steps=args.n_steps_per_epoch)
 

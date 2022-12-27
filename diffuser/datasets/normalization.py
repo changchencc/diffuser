@@ -11,7 +11,8 @@ POINTMASS_KEYS = ['observations', 'actions', 'next_observations', 'deltas']
 class DatasetNormalizer:
 
     def __init__(self, dataset, normalizer, path_lengths=None):
-        dataset = flatten(dataset, path_lengths)
+        if path_lengths:
+            dataset = flatten(dataset, path_lengths)
 
         self.observation_dim = dataset['observations'].shape[1]
         self.action_dim = dataset['actions'].shape[1]

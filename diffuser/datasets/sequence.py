@@ -15,10 +15,11 @@ class SequenceDataset(torch.utils.data.Dataset):
 
     def __init__(self, env='hopper-medium-replay', horizon=64,
         normalizer='LimitsNormalizer', preprocess_fns=[], max_path_length=1000,
-        max_n_episodes=10000, termination_penalty=0, use_padding=True):
+        max_n_episodes=10000, termination_penalty=0, use_padding=True, jump=1):
         self.preprocess_fn = get_preprocess_fn(preprocess_fns, env)
         self.env = env = load_environment(env)
         self.horizon = horizon
+        self.jump = jump
         self.max_path_length = max_path_length
         self.use_padding = use_padding
         itr = sequence_dataset(env, self.preprocess_fn)
@@ -29,7 +30,7 @@ class SequenceDataset(torch.utils.data.Dataset):
         fields.finalize()
 
         self.normalizer = DatasetNormalizer(fields, normalizer, path_lengths=fields['path_lengths'])
-        self.indices = self.make_indices(fields.path_lengths, horizon)
+        self.indices = self.make_indices(fields.path_lengths, horizon*jump)
 
         self.observation_dim = fields.observations.shape[-1]
         self.action_dim = fields.actions.shape[-1]
@@ -79,8 +80,8 @@ class SequenceDataset(torch.utils.data.Dataset):
     def __getitem__(self, idx, eps=1e-4):
         path_ind, start, end = self.indices[idx]
 
-        observations = self.fields.normed_observations[path_ind, start:end]
-        actions = self.fields.normed_actions[path_ind, start:end]
+        observations = self.fields.normed_observations[path_ind, start:end][::self.jump]
+        actions = self.fields.normed_actions[path_ind, start:end].reshape(-1, self.jump*self.action_dim)
 
         conditions = self.get_conditions(observations)
         trajectories = np.concatenate([actions, observations], axis=-1)

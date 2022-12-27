@@ -15,7 +15,7 @@ class Policy:
     def __init__(self, diffusion_model, normalizer):
         self.diffusion_model = diffusion_model
         self.normalizer = normalizer
-        self.action_dim = normalizer.action_dim
+        self.action_dim = diffusion_model.action_dim
 
     @property
     def device(self):
