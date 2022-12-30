@@ -30,7 +30,7 @@ class SequenceDataset(torch.utils.data.Dataset):
         fields.finalize()
 
         self.normalizer = DatasetNormalizer(fields, normalizer, path_lengths=fields['path_lengths'])
-        self.indices = self.make_indices(fields.path_lengths, horizon*jump)
+        self.indices = self.make_indices(fields.path_lengths, horizon)
 
         self.observation_dim = fields.observations.shape[-1]
         self.action_dim = fields.actions.shape[-1]
@@ -96,7 +96,7 @@ class GoalDataset(SequenceDataset):
         '''
         return {
             0: observations[0],
-            self.horizon - 1: observations[-1],
+            self.horizon // self.jump - 1: observations[-1],
         }
 
 class ValueDataset(SequenceDataset):

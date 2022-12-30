@@ -55,7 +55,7 @@ base = {
         'max_path_length': 40000,
 
         ## serialization
-        'logbase': 'logs',
+        'logbase': '/common/users/cc1547/projects/diffuser/logs',
         'prefix': 'diffusion/',
         'exp_name': watch(diffusion_args_to_watch),
 
@@ -89,7 +89,7 @@ base = {
 
         ## serialization
         'vis_freq': 10,
-        'logbase': 'logs',
+        'logbase': '/common/users/cc1547/projects/diffuser/logs',
         'prefix': 'plans/release',
         'exp_name': watch(plan_args_to_watch),
         'suffix': '0',

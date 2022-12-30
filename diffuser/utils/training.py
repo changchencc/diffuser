@@ -101,7 +101,7 @@ class Trainer(object):
     #------------------------------------ api ------------------------------------#
     #-----------------------------------------------------------------------------#
 
-    def train(self, n_train_steps):
+    def train(self, n_train_steps, writer=None):
 
         timer = Timer()
         for step in range(n_train_steps):
@@ -125,7 +125,12 @@ class Trainer(object):
 
             if self.step % self.log_freq == 0:
                 infos_str = ' | '.join([f'{key}: {val:8.4f}' for key, val in infos.items()])
-                print(f'{self.step}: {loss:8.4f} | {infos_str} | t: {timer():8.4f}')
+                batch_time = timer()
+                print(f'{self.step}: {loss:8.4f} | {infos_str} | t: {batch_time:8.4f}')
+                writer.add_scalar('total_loss', loss.detach().item(), global_step=self.step )
+                writer.add_scalar('batch_time', batch_time, global_step=self.step )
+                writer.add_scalars('infos', infos, global_step=self.step )
+                writer.flush()
 
             if self.step == 0 and self.sample_freq:
                 self.render_reference(self.n_reference)
@@ -156,6 +161,7 @@ class Trainer(object):
             loads model and ema from disk
         '''
         loadpath = os.path.join(self.logdir, f'state_{epoch}.pt')
+        print(f'trainner load from {loadpath}')
         data = torch.load(loadpath)
 
         self.step = data['step']
@@ -183,7 +189,7 @@ class Trainer(object):
         conditions = to_np(batch.conditions[0])[:,None]
 
         ## [ batch_size x horizon x observation_dim ]
-        normed_observations = trajectories[:, :, self.dataset.action_dim:]
+        normed_observations = trajectories[:, :, self.model.action_dim:]
         observations = self.dataset.normalizer.unnormalize(normed_observations, 'observations')
 
         # from diffusion.datasets.preprocessing import blocks_cumsum_quat
@@ -220,7 +226,7 @@ class Trainer(object):
             samples = to_np(samples)
 
             ## [ n_samples x horizon x observation_dim ]
-            normed_observations = samples[:, :, self.dataset.action_dim:]
+            normed_observations = samples[:, :, self.model.action_dim:]
 
             # [ 1 x 1 x observation_dim ]
             normed_conditions = to_np(batch.conditions[0])[:,None]

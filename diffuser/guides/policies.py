@@ -12,10 +12,11 @@ Trajectories = namedtuple('Trajectories', 'actions observations')
 
 class Policy:
 
-    def __init__(self, diffusion_model, normalizer):
+    def __init__(self, diffusion_model, normalizer, jump=1):
         self.diffusion_model = diffusion_model
         self.normalizer = normalizer
         self.action_dim = diffusion_model.action_dim
+        self.jump = jump
 
     @property
     def device(self):
@@ -51,7 +52,9 @@ class Policy:
 
         ## extract action [ batch_size x horizon x transition_dim ]
         actions = sample[:, :, :self.action_dim]
-        actions = self.normalizer.unnormalize(actions, 'actions')
+        shape = actions.shape
+        actions = self.normalizer.unnormalize(actions.reshape(*shape[:-1], self.jump, -1), 'actions')
+        actions = actions.reshape(*shape[:-1], -1)
         # actions = np.tanh(actions)
 
         ## extract first action

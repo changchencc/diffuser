@@ -5,6 +5,7 @@ from os.path import join
 import pdb
 from diffuser.guides.policies import Policy
 import diffuser.utils as utils
+import diffuser.datasets as datasets
 from torch.utils.tensorboard import SummaryWriter
 
 
@@ -14,7 +15,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 class Parser(utils.Parser):
     dataset: str = 'maze2d-large-v1'
-    config: str = 'config.maze2d_jumpy'
+    config: str = 'config.maze2d_jump'
 
 args = Parser().parse_args('diffusion')
 
@@ -32,6 +33,7 @@ dataset_config = utils.Config(
     preprocess_fns=args.preprocess_fns,
     use_padding=args.use_padding,
     max_path_length=args.max_path_length,
+    jump=args.jump
 )
 
 render_config = utils.Config(
@@ -54,7 +56,7 @@ action_dim = dataset.action_dim * args.jump
 model_config = utils.Config(
     args.model,
     savepath=(args.savepath, 'model_config.pkl'),
-    horizon=args.horizon,
+    horizon=args.horizon//args.jump,
     transition_dim=observation_dim + action_dim,
     cond_dim=observation_dim,
     dim_mults=args.dim_mults,
@@ -64,7 +66,7 @@ model_config = utils.Config(
 diffusion_config = utils.Config(
     args.diffusion,
     savepath=(args.savepath, 'diffusion_config.pkl'),
-    horizon=args.horizon,
+    horizon=args.horizon//args.jump,
     observation_dim=observation_dim,
     action_dim=action_dim,
     n_timesteps=args.n_diffusion_steps,
@@ -104,6 +106,11 @@ model = model_config()
 diffusion = diffusion_config(model)
 
 trainer = trainer_config(diffusion, dataset, renderer)
+diffusion_experiment = utils.load_diffusion(args.logbase, args.dataset, args.savepath, epoch='latest')
+model = diffusion_experiment.model
+trainer = diffusion_experiment.trainer
+diffusion = diffusion_experiment.diffusion
+start_epoch = int(diffusion_experiment.epoch // args.n_steps_per_epoch)
 
 
 #-----------------------------------------------------------------------------#
@@ -124,19 +131,20 @@ print('✓')
 #-----------------------------------------------------------------------------#
 
 eval_args = Parser().parse_args('plan')
+
+
 eval_writer = SummaryWriter(log_dir=args.savepath)
 def evaluate(epoch, sample_idx):
 
 
-    env_eval = dataset.load_environment(eval_args.dataset)
-    policy = Policy(trainer.ema_model, dataset.normalizer)
+    env_eval = datasets.load_environment(eval_args.dataset)
+    policy = Policy(trainer.ema_model, dataset.normalizer, args.jump)
 
     observation = env_eval.reset()
     target = env_eval._target
     cond = {
         diffusion.horizon - 1: np.array([*target, 0, 0]),
     }
-    observation = env_eval.reset()
     init_state = env_eval.state_vector()
 
     for infer_action in [True, False]:
@@ -240,12 +248,13 @@ def evaluate(epoch, sample_idx):
 n_epochs = int(args.n_train_steps // args.n_steps_per_epoch)
 eval_sample_n = 5
 
-for i in range(n_epochs):
+train_writer = SummaryWriter(log_dir=args.savepath + '-train')
+for i in range(start_epoch, n_epochs):
 
     print(f'Epoch {i} / {n_epochs} | {args.savepath}')
 
     for k in range(eval_sample_n):
-        evaluate(i, 0)
+        evaluate(i, k)
 
-    trainer.train(n_train_steps=args.n_steps_per_epoch)
+    trainer.train(n_train_steps=args.n_steps_per_epoch, writer=train_writer)
 
